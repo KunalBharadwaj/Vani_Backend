@@ -10,7 +10,8 @@ export const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID || "mock-client-id",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || "mock-client-secret",
-    callbackURL: "/auth/google/callback"
+    callbackURL: "/auth/google/callback",
+    proxy: true
 }, (accessToken, refreshToken, profile, done) => {
     // In a real app, you'd insert/update the user in your database here
     const user = {
