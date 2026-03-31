@@ -22,6 +22,7 @@ import { logSession, getUserSessions } from "./db/sqlite.js";
 import * as Y from "yjs";
 
 const app = express();
+app.set("trust proxy", 1); // Trust first proxy (Render) to set secure cookies properly
 const server = http.createServer(app);
 
 // Middlewares

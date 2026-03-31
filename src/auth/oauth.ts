@@ -40,7 +40,7 @@ export function handleGoogleCallback(req: Request, res: Response) {
     res.cookie("auth_token", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
-        sameSite: "lax"
+        sameSite: "none"
     });
 
     // Redirect client back to the Next.js frontend (passing token to help with external client WebSocket init)
