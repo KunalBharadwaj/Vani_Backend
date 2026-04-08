@@ -30,9 +30,7 @@
     "y-leveldb": "^0.2.0",
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.0.0",
-    "yjs": "^13.6.30"
-  },
-  "devDependencies": {
+    "yjs": "^13.6.30",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
