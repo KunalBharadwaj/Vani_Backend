@@ -6,7 +6,7 @@ import passport from "passport";
 import jwt from "jsonwebtoken";
 import "dotenv/config";
 import { WebSocketServer, WebSocket } from "ws";
-import { joinRoom, broadcast } from "./rooms/roomManager.js";
+import { joinRoom, broadcast, broadcastBinary, assignOwner } from "./rooms/roomManager.js";
 import { getYDoc } from "./yjs/yjsServer.js";
 import {
     startMediasoup,
@@ -126,8 +126,8 @@ wss.on("connection", (ws) => {
             // In a full implementation, use Y.applyUpdate to sync state locally:
             Y.applyUpdate(doc, new Uint8Array(message as ArrayBuffer));
 
-            // Broadcast binary update to others
-            broadcast(currentRoom, message, ws);
+            // Broadcast binary update to others (must stay binary, NOT JSON.stringify)
+            broadcastBinary(currentRoom, message, ws);
             return;
         }
 
@@ -147,6 +147,11 @@ wss.on("connection", (ws) => {
 
                     console.log(`User joined room ${currentRoom}`);
                 }
+            }
+
+            if (data.type === "assign_owner" && currentRoom) {
+                // @ts-ignore
+                assignOwner(currentRoom, ws.user.id, data.targetUserId);
             }
 
             if (data.type === "message" && currentRoom) {

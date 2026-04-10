@@ -1,6 +1,4 @@
 import * as Y from "yjs";
-import { WebSocket } from "ws";
-import { rooms } from "../rooms/roomManager.js";
 // @ts-ignore
 import { LeveldbPersistence } from "y-leveldb";
 import path from "path";
@@ -16,17 +14,10 @@ export async function getYDoc(roomId: string) {
         docs.set(roomId, doc);
 
         doc.on("update", (update: Uint8Array) => {
-            // Save updates durably to the LevelDB disk partition
+            // Persist updates durably to LevelDB.
+            // Broadcasting is handled by server.ts via broadcastBinary() —
+            // do NOT broadcast here or updates will be sent twice.
             persistence.storeUpdate(roomId, update);
-
-            const room = rooms.get(roomId);
-            if (!room) return;
-
-            room.clients.forEach((_, client) => {
-                if (client.readyState === 1) { // WebSocket.OPEN
-                    client.send(update);
-                }
-            });
         });
     }
     return docs.get(roomId)!;
