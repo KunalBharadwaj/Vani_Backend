@@ -44,5 +44,16 @@ export function handleGoogleCallback(req: Request, res: Response) {
     });
 
     // Redirect client back to the Next.js frontend (passing token to help with external client WebSocket init)
-    res.redirect(`${FRONTEND_URL}/?token=${token}`);
+    let redirectPath = "/";
+    if (req.query.state) {
+        try {
+            redirectPath = Buffer.from(req.query.state as string, 'base64').toString('ascii');
+            // Ensure path starts with a slash
+            if (!redirectPath.startsWith('/')) redirectPath = '/' + redirectPath;
+        } catch(e) {}
+    }
+    
+    // Check if the redirectPath already has query params to append the token properly
+    const sep = redirectPath.includes('?') ? '&' : '?';
+    res.redirect(`${FRONTEND_URL}${redirectPath}${sep}token=${token}`);
 }

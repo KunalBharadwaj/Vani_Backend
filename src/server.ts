@@ -32,7 +32,11 @@ app.use(express.json());
 app.use(passport.initialize());
 
 // OAuth 2.0 Routes
-app.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+app.get("/auth/google", (req, res, next) => {
+    const redirectParams = req.query.redirect_to as string;
+    const state = redirectParams ? Buffer.from(redirectParams).toString('base64') : undefined;
+    passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
+});
 app.get("/auth/google/callback", passport.authenticate("google", { session: false, failureRedirect: "/login" }), handleGoogleCallback);
 
 app.get("/", (req, res) => {
@@ -121,12 +125,29 @@ wss.on("connection", (ws) => {
 
     ws.on("message", async (message, isBinary) => {
         if (isBinary && currentRoom) {
-            // Treat binary messages as Yjs updates
             const doc = await getYDoc(currentRoom);
-            // In a full implementation, use Y.applyUpdate to sync state locally:
-            Y.applyUpdate(doc, new Uint8Array(message as ArrayBuffer));
+            const raw = new Uint8Array(message as ArrayBuffer);
 
-            // Broadcast binary update to others (must stay binary, NOT JSON.stringify)
+            // Our Wrapped Protocol
+            if (raw[0] === 1) { // 1 = Sync Request (client sent State Vector)
+                const sv = raw.slice(1);
+                const syncUpdate = Y.encodeStateAsUpdate(doc, sv);
+                const reply = new Uint8Array(syncUpdate.length + 1);
+                reply[0] = 2; // 2 = Sync Update Output
+                reply.set(syncUpdate, 1);
+                ws.send(reply);
+                return;
+            }
+
+            if (raw[0] === 0) { // 0 = Normal Update wrapper
+                const update = raw.slice(1);
+                Y.applyUpdate(doc, update);
+                broadcastBinary(currentRoom, message, ws); // relay wrapper identically
+                return;
+            }
+
+            // Fallback for legacy unwrapped packet
+            Y.applyUpdate(doc, raw);
             broadcastBinary(currentRoom, message, ws);
             return;
         }
@@ -141,9 +162,12 @@ wss.on("connection", (ws) => {
                     joinRoom(currentRoom, ws, ws.user);
                     const doc = await getYDoc(currentRoom); // Initialize doc instance from persistence
 
-                    // Send entire existing document state to newly joined user
-                    const stateVector = Y.encodeStateAsUpdate(doc);
-                    ws.send(stateVector);
+                    // Send entire existing document state wrapped
+                    const fullUpdate = Y.encodeStateAsUpdate(doc);
+                    const initPayload = new Uint8Array(fullUpdate.length + 1);
+                    initPayload[0] = 2; // 2 = Sync Update Output Wrapper
+                    initPayload.set(fullUpdate, 1);
+                    ws.send(initPayload);
 
                     console.log(`User joined room ${currentRoom}`);
                 }
