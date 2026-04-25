@@ -128,26 +128,14 @@ wss.on("connection", (ws) => {
             const doc = await getYDoc(currentRoom);
             const raw = new Uint8Array(message as ArrayBuffer);
 
-            // Our Wrapped Protocol
-            if (raw[0] === 1) { // 1 = Sync Request (client sent State Vector)
-                const sv = raw.slice(1);
-                const syncUpdate = Y.encodeStateAsUpdate(doc, sv);
-                const reply = new Uint8Array(syncUpdate.length + 1);
-                reply[0] = 2; // 2 = Sync Update Output
-                reply.set(syncUpdate, 1);
-                ws.send(reply);
-                return;
+            // Directly apply Yjs update without sniffing byte 0.
+            try {
+                Y.applyUpdate(doc, raw);
+            } catch (err) {
+                console.error("Failed to apply binary update:", err);
             }
-
-            if (raw[0] === 0) { // 0 = Normal Update wrapper
-                const update = raw.slice(1);
-                Y.applyUpdate(doc, update);
-                broadcastBinary(currentRoom, message, ws); // relay wrapper identically
-                return;
-            }
-
-            // Fallback for legacy unwrapped packet
-            Y.applyUpdate(doc, raw);
+            
+            // Broadcast binary update to others
             broadcastBinary(currentRoom, message, ws);
             return;
         }
@@ -162,15 +150,25 @@ wss.on("connection", (ws) => {
                     joinRoom(currentRoom, ws, ws.user);
                     const doc = await getYDoc(currentRoom); // Initialize doc instance from persistence
 
-                    // Send entire existing document state wrapped
+                    // Send entire existing document state as base64 in a typed JSON format to ensure safe joining sync
                     const fullUpdate = Y.encodeStateAsUpdate(doc);
-                    const initPayload = new Uint8Array(fullUpdate.length + 1);
-                    initPayload[0] = 2; // 2 = Sync Update Output Wrapper
-                    initPayload.set(fullUpdate, 1);
-                    ws.send(initPayload);
+                    ws.send(JSON.stringify({ 
+                        type: "sync_step_2", 
+                        updateBase64: Buffer.from(fullUpdate).toString("base64") 
+                    }));
 
                     console.log(`User joined room ${currentRoom}`);
                 }
+            }
+            
+            if (data.type === "sync_step_1" && currentRoom) {
+                const doc = await getYDoc(currentRoom);
+                const sv = Buffer.from(data.svBase64, "base64");
+                const syncUpdate = Y.encodeStateAsUpdate(doc, new Uint8Array(sv));
+                ws.send(JSON.stringify({ 
+                    type: "sync_step_2", 
+                    updateBase64: Buffer.from(syncUpdate).toString("base64") 
+                }));
             }
 
             if (data.type === "assign_owner" && currentRoom) {
