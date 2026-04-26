@@ -18,7 +18,7 @@ import {
     resumeConsumer
 } from "./sfu/sfuService.js";
 import { handleGoogleCallback, JWT_SECRET } from "./auth/oauth.js";
-import { logSession, getUserSessions } from "./db/sqlite.js";
+import { logSession, getUserSessions } from "./db/mongo.js";
 import * as Y from "yjs";
 
 const app = express();
@@ -33,8 +33,8 @@ app.use(passport.initialize());
 
 // OAuth 2.0 Routes
 app.get("/auth/google", (req, res, next) => {
-    const redirectParams = req.query.redirect_to as string;
-    const state = redirectParams ? Buffer.from(redirectParams).toString('base64') : undefined;
+    // A-3: accept raw state query from frontend (which now contains base64 JSON of redirect + nonce)
+    const state = req.query.state as string;
     passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
 });
 app.get("/auth/google/callback", passport.authenticate("google", { session: false, failureRedirect: "/login" }), handleGoogleCallback);
@@ -46,6 +46,19 @@ app.get("/", (req, res) => {
 app.get("/health", (req, res) => {
     res.status(200).json({ status: "healthy" });
 });
+
+// A-1 / A-4: Endpoint to issue short-lived JWT directly if the httponly cookie is valid
+app.get("/api/auth/me", (req, res) => {
+    const cookieToken = req.cookies?.auth_token;
+    if (!cookieToken) return res.status(401).json({ error: "No session" });
+    
+    jwt.verify(cookieToken, JWT_SECRET, (err: any, user: any) => {
+        if (err) return res.status(401).json({ error: "Invalid session" });
+        // Return user data and the cookie token acting as a memory token for the frontend WS
+        res.json({ user, token: cookieToken });
+    });
+});
+
 
 // Auth Middleware for API routes
 const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -82,48 +95,49 @@ app.get("/api/sessions", authenticateToken, async (req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 
-// Protect WebSocket upgrades with JWT
+// A-2: Do not look for token in WS URL query. Upgrade everyone to socket.
 server.on("upgrade", (request, socket, head) => {
-    try {
-        const url = new URL(request.url || "", `http://${request.headers.host}`);
-        const token = url.searchParams.get("token");
-
-        if (!token) {
-            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-            socket.destroy();
-            return;
-        }
-
-        jwt.verify(token, JWT_SECRET, (err, decoded) => {
-            if (err) {
-                socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-                socket.destroy();
-                return;
-            }
-
-            // Authentication passed, attach user to WebSocket upgrade
-            wss.handleUpgrade(request, socket, head, (ws) => {
-                // @ts-ignore
-                ws.user = decoded;
-                wss.emit("connection", ws, request);
-            });
-        });
-    } catch (e) {
-        socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
-        socket.destroy();
-    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+    });
 });
 
 wss.on("connection", (ws) => {
     let currentRoom: string | null = null;
     ws.binaryType = "arraybuffer"; // Important for Yjs sync
-
-    // Example: Log authenticated user
-    // @ts-ignore
-    const user = ws.user;
-    console.log(`User ${user?.name || 'Unknown'} connected.`);
+    
+    // A-4: Require explicit auth message on connection before anything else.
+    let isAuthed = false;
 
     ws.on("message", async (message, isBinary) => {
+        if (!isAuthed) {
+            if (!isBinary) {
+                try {
+                    const data = JSON.parse(message.toString());
+                    if (data.type === "auth" && data.token) {
+                        jwt.verify(data.token, JWT_SECRET, (err: any, decoded: any) => {
+                            if (err) {
+                                ws.close(4001, "Unauthorized");
+                                return;
+                            }
+                            isAuthed = true;
+                            // @ts-ignore
+                            ws.user = decoded;
+                            console.log(`User ${decoded?.name || 'Unknown'} connected via explicit auth.`);
+                            ws.send(JSON.stringify({ type: "auth_success" }));
+                        });
+                    } else {
+                        ws.close(4000, "Auth payload missing or invalid");
+                    }
+                } catch (e) {
+                    ws.close(4000, "Bad payload");
+                }
+            } else {
+                ws.close(4000, "Must authenticate before sending binary");
+            }
+            return;
+        }
+
         if (isBinary && currentRoom) {
             const doc = await getYDoc(currentRoom);
             const raw = new Uint8Array(message as ArrayBuffer);
