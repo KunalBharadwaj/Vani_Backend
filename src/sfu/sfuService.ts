@@ -11,6 +11,8 @@ export const producers = new Map<string, types.Producer>();
 export const consumers = new Map<string, types.Consumer>();
 // Reverse mapping: transport -> router
 export const transportToRouter = new Map<string, types.Router>();
+// Mapping to aggregate producers per room
+export const roomProducers = new Map<string, types.Producer[]>();
 
 export async function startMediasoup(): Promise<void> {
     worker = await mediasoup.createWorker({
@@ -70,16 +72,30 @@ export async function connectTransport(transportId: string, dtlsParameters: type
     await transport.connect({ dtlsParameters });
 }
 
-export async function loadProducer(transportId: string, kind: types.MediaKind, rtpParameters: types.RtpParameters): Promise<types.Producer> {
+export async function loadProducer(roomId: string, transportId: string, kind: types.MediaKind, rtpParameters: types.RtpParameters): Promise<types.Producer> {
     const transport = transports.get(transportId);
     if (!transport) throw new Error("Transport not found");
 
     const producer = await transport.produce({ kind, rtpParameters });
     producers.set(producer.id, producer);
 
+    if (!roomProducers.has(roomId)) {
+        roomProducers.set(roomId, []);
+    }
+    roomProducers.get(roomId)!.push(producer);
+
     producer.on("transportclose", () => {
         producer.close();
     });
+
+    const removeProducer = () => {
+        const roomArray = roomProducers.get(roomId);
+        if (roomArray) {
+            roomProducers.set(roomId, roomArray.filter((p) => p.id !== producer.id));
+        }
+    };
+
+    producer.observer.on("close", removeProducer);
 
     return producer;
 }

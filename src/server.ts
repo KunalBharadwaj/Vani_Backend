@@ -15,7 +15,8 @@ import {
     connectTransport,
     loadProducer,
     loadConsumer,
-    resumeConsumer
+    resumeConsumer,
+    roomProducers
 } from "./sfu/sfuService.js";
 import { handleGoogleCallback, JWT_SECRET } from "./auth/oauth.js";
 import { logSession, getUserSessions } from "./db/mongo.js";
@@ -51,7 +52,7 @@ app.get("/health", (req, res) => {
 app.get("/api/auth/me", (req, res) => {
     const cookieToken = req.cookies?.auth_token;
     if (!cookieToken) return res.status(401).json({ error: "No session" });
-    
+
     jwt.verify(cookieToken, JWT_SECRET, (err: any, user: any) => {
         if (err) return res.status(401).json({ error: "Invalid session" });
         // Return user data and the cookie token acting as a memory token for the frontend WS
@@ -105,7 +106,7 @@ server.on("upgrade", (request, socket, head) => {
 wss.on("connection", (ws) => {
     let currentRoom: string | null = null;
     ws.binaryType = "arraybuffer"; // Important for Yjs sync
-    
+
     // A-4: Require explicit auth message on connection before anything else.
     let isAuthed = false;
 
@@ -148,7 +149,7 @@ wss.on("connection", (ws) => {
             } catch (err) {
                 console.error("Failed to apply binary update:", err);
             }
-            
+
             // Broadcast binary update to others
             broadcastBinary(currentRoom, message, ws);
             return;
@@ -166,22 +167,22 @@ wss.on("connection", (ws) => {
 
                     // Send entire existing document state as base64 in a typed JSON format to ensure safe joining sync
                     const fullUpdate = Y.encodeStateAsUpdate(doc);
-                    ws.send(JSON.stringify({ 
-                        type: "sync_step_2", 
-                        updateBase64: Buffer.from(fullUpdate).toString("base64") 
+                    ws.send(JSON.stringify({
+                        type: "sync_step_2",
+                        updateBase64: Buffer.from(fullUpdate).toString("base64")
                     }));
 
                     console.log(`User joined room ${currentRoom}`);
                 }
             }
-            
+
             if (data.type === "sync_step_1" && currentRoom) {
                 const doc = await getYDoc(currentRoom);
                 const sv = Buffer.from(data.svBase64, "base64");
                 const syncUpdate = Y.encodeStateAsUpdate(doc, new Uint8Array(sv));
-                ws.send(JSON.stringify({ 
-                    type: "sync_step_2", 
-                    updateBase64: Buffer.from(syncUpdate).toString("base64") 
+                ws.send(JSON.stringify({
+                    type: "sync_step_2",
+                    updateBase64: Buffer.from(syncUpdate).toString("base64")
                 }));
             }
 
@@ -226,10 +227,21 @@ wss.on("connection", (ws) => {
                             break;
 
                         case "webrtc:produce":
-                            const producer = await loadProducer(data.transportId, data.kind, data.rtpParameters);
+                            const producer = await loadProducer(currentRoom, data.transportId, data.kind, data.rtpParameters);
                             ws.send(JSON.stringify({ type: "webrtc:produced", id: producer.id }));
                             // Notify others in room
                             broadcast(currentRoom, { type: "webrtc:newProducer", producerId: producer.id }, ws);
+                            break;
+
+                        case "webrtc:getProducers":
+                            const existingProducers = roomProducers.get(currentRoom) || [];
+                            const producersInfo = existingProducers
+                                .filter(p => !p.closed)
+                                .map(p => ({ id: p.id, kind: p.kind }));
+                            ws.send(JSON.stringify({
+                                type: "webrtc:activeProducers",
+                                producers: producersInfo
+                            }));
                             break;
 
                         case "webrtc:consume":
