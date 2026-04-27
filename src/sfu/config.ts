@@ -1,5 +1,10 @@
 import type { types } from "mediasoup";
 
+// The announced IP/hostname is what mediasoup advertises inside ICE candidates.
+// In production (Render), set the ANNOUNCED_IP environment variable to your server's
+// public IP. If not set, falls back to 127.0.0.1 for local development.
+const announcedIp = process.env.ANNOUNCED_IP || "127.0.0.1";
+
 // Mediasoup configurations
 export const sfuConfig = {
     worker: {
@@ -39,12 +44,19 @@ export const sfuConfig = {
         ] as unknown as types.RtpCodecCapability[],
     },
     webRtcTransport: {
+        // Both UDP and TCP listen infos are required.
+        // Render and many cloud providers block UDP — TCP is the reliable fallback.
         listenInfos: [
             {
                 protocol: "udp",
-                ip: "0.0.0.0", // Catch-all for dev
-                announcedAddress: "127.0.0.1", // IMPORTANT: CHANGE FOR PRODUCTION to your server public IP!
-            }
+                ip: "0.0.0.0",
+                announcedAddress: announcedIp,
+            },
+            {
+                protocol: "tcp",
+                ip: "0.0.0.0",
+                announcedAddress: announcedIp,
+            },
         ] as types.TransportListenInfo[],
         initialAvailableOutgoingBitrate: 1000000,
         minimumAvailableOutgoingBitrate: 600000,
