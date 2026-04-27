@@ -247,7 +247,7 @@ wss.on("connection", (ws) => {
                         case "webrtc:getProducers":
                             const existingProducers = roomProducers.get(currentRoom) || [];
                             const producersInfo = existingProducers
-                                .filter(p => !p.closed)
+                                .filter(p => !p.closed && p.appData?.userId !== (ws as any).user?.id) // Never return own producers
                                 .map(p => ({ id: p.id, kind: p.kind, userId: p.appData?.userId }));
                             ws.send(JSON.stringify({
                                 type: "webrtc:activeProducers",

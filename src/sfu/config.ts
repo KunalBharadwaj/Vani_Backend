@@ -43,7 +43,9 @@ export const sfuConfig = {
             {
                 protocol: "udp",
                 ip: "0.0.0.0", // Catch-all for dev
-                announcedAddress: "127.0.0.1", // IMPORTANT: CHANGE FOR PRODUCTION to your server public IP!
+                // IMPORTANT: Set ANNOUNCED_IP env var to your server's public IP on Render/Railway.
+                // Without this, mediasoup sends 127.0.0.1 as the ICE candidate → WebRTC fails in production.
+                announcedAddress: process.env.ANNOUNCED_IP || "127.0.0.1",
             }
         ] as types.TransportListenInfo[],
         initialAvailableOutgoingBitrate: 1000000,

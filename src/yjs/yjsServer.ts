@@ -8,6 +8,22 @@ const docs = new Map<string, Y.Doc>();
 
 const dbPath = path.join(process.cwd(), "data", "yjs-storage");
 
+// Detect corrupted LevelDB state: directory exists but MANIFEST is missing.
+// This happens when git deletes tracked .ldb/MANIFEST files but leaves CURRENT behind.
+// In that case, wipe the directory so LevelDB can start completely fresh.
+if (fs.existsSync(dbPath)) {
+    const files = fs.readdirSync(dbPath);
+    const hasManifest = files.some(f => f.startsWith("MANIFEST"));
+    if (!hasManifest) {
+        try {
+            fs.rmSync(dbPath, { recursive: true, force: true });
+            console.log("[YJS] Detected corrupted LevelDB (missing MANIFEST). Cleared for fresh start.");
+        } catch (e) {
+            console.warn("[YJS] Could not clear corrupted LevelDB directory:", e);
+        }
+    }
+}
+
 // Remove stale LOCK file left behind if the server was killed (common on Windows)
 const lockFile = path.join(dbPath, "LOCK");
 if (fs.existsSync(lockFile)) {
