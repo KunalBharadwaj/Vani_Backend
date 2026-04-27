@@ -6,7 +6,7 @@ import passport from "passport";
 import jwt from "jsonwebtoken";
 import "dotenv/config";
 import { WebSocketServer, WebSocket } from "ws";
-import { joinRoom, broadcast, broadcastBinary, assignOwner } from "./rooms/roomManager.js";
+import { joinRoom, broadcast, broadcastBinary, assignOwner, rooms } from "./rooms/roomManager.js";
 import { getYDoc } from "./yjs/yjsServer.js";
 import {
     startMediasoup,
@@ -16,7 +16,8 @@ import {
     loadProducer,
     loadConsumer,
     resumeConsumer,
-    roomProducers
+    roomProducers,
+    closeProducer
 } from "./sfu/sfuService.js";
 import { handleGoogleCallback, JWT_SECRET } from "./auth/oauth.js";
 import { logSession, getUserSessions } from "./db/mongo.js";
@@ -227,17 +228,27 @@ wss.on("connection", (ws) => {
                             break;
 
                         case "webrtc:produce":
-                            const producer = await loadProducer(currentRoom, data.transportId, data.kind, data.rtpParameters);
+                            // @ts-ignore
+                            const producer = await loadProducer(currentRoom, data.transportId, data.kind, data.rtpParameters, ws.user?.id || "unknown");
                             ws.send(JSON.stringify({ type: "webrtc:produced", id: producer.id }));
                             // Notify others in room
-                            broadcast(currentRoom, { type: "webrtc:newProducer", producerId: producer.id }, ws);
+                            // @ts-ignore
+                            broadcast(currentRoom, {
+                                type: "webrtc:newProducer",
+                                producerId: producer.id,
+                                kind: data.kind,
+                                // @ts-ignore
+                                callerId: ws.user?.id || null,
+                                // @ts-ignore
+                                callerName: ws.user?.name || "Someone"
+                            }, ws);
                             break;
 
                         case "webrtc:getProducers":
                             const existingProducers = roomProducers.get(currentRoom) || [];
                             const producersInfo = existingProducers
                                 .filter(p => !p.closed)
-                                .map(p => ({ id: p.id, kind: p.kind }));
+                                .map(p => ({ id: p.id, kind: p.kind, userId: p.appData?.userId }));
                             ws.send(JSON.stringify({
                                 type: "webrtc:activeProducers",
                                 producers: producersInfo
@@ -261,6 +272,53 @@ wss.on("connection", (ws) => {
                             await resumeConsumer(data.consumerId);
                             ws.send(JSON.stringify({ type: "webrtc:consumerResumed" }));
                             break;
+
+                        case "webrtc:closeProducer":
+                            await closeProducer(data.producerId);
+                            break;
+
+                        case "webrtc:requestCall": {
+                            const room = rooms.get(currentRoom);
+                            if (!room || !data.targetUserId) break;
+                            const targetClient = Array.from(room.clients.keys()).find((client: any) => {
+                                const targetUser = room.clients.get(client);
+                                return targetUser?.id === data.targetUserId;
+                            });
+                            if (targetClient && targetClient.readyState === WebSocket.OPEN) {
+                                // @ts-ignore
+                                const senderUser = ws.user || {};
+                                targetClient.send(JSON.stringify({
+                                    type: "webrtc:incomingCallRequest",
+                                    callerId: senderUser.id || null,
+                                    callerName: senderUser.name || "Someone",
+                                    wantsAudio: !!data.wantsAudio,
+                                    wantsVideo: !!data.wantsVideo
+                                }));
+                            }
+                            break;
+                        }
+
+                        case "webrtc:callAccepted":
+                        case "webrtc:callDeclined": {
+                            const room = rooms.get(currentRoom);
+                            if (!room || !data.targetUserId) break;
+                            const targetClient = Array.from(room.clients.keys()).find((client: any) => {
+                                const targetUser = room.clients.get(client);
+                                return targetUser?.id === data.targetUserId;
+                            });
+                            if (targetClient && targetClient.readyState === WebSocket.OPEN) {
+                                // @ts-ignore
+                                const senderUser = ws.user || {};
+                                targetClient.send(JSON.stringify({
+                                    type: data.type,
+                                    senderId: senderUser.id || null,
+                                    senderName: senderUser.name || "Someone",
+                                    acceptedAudio: !!data.acceptedAudio,
+                                    acceptedVideo: !!data.acceptedVideo
+                                }));
+                            }
+                            break;
+                        }
                     }
                 } catch (e) {
                     console.error(`SFU error handling ${data.type}:`, e);

@@ -1,6 +1,7 @@
 import * as mediasoup from "mediasoup";
 import type { types } from "mediasoup";
 import { sfuConfig } from "./config.js";
+import { broadcast } from "../rooms/roomManager.js";
 
 let worker: types.Worker;
 
@@ -72,11 +73,11 @@ export async function connectTransport(transportId: string, dtlsParameters: type
     await transport.connect({ dtlsParameters });
 }
 
-export async function loadProducer(roomId: string, transportId: string, kind: types.MediaKind, rtpParameters: types.RtpParameters): Promise<types.Producer> {
+export async function loadProducer(roomId: string, transportId: string, kind: types.MediaKind, rtpParameters: types.RtpParameters, userId: string): Promise<types.Producer> {
     const transport = transports.get(transportId);
     if (!transport) throw new Error("Transport not found");
 
-    const producer = await transport.produce({ kind, rtpParameters });
+    const producer = await transport.produce({ kind, rtpParameters, appData: { userId } });
     producers.set(producer.id, producer);
 
     if (!roomProducers.has(roomId)) {
@@ -95,7 +96,10 @@ export async function loadProducer(roomId: string, transportId: string, kind: ty
         }
     };
 
-    producer.observer.on("close", removeProducer);
+    producer.observer.on("close", () => {
+        removeProducer();
+        broadcast(roomId, { type: "webrtc:producerRemoved", producerId: producer.id });
+    });
 
     return producer;
 }
@@ -134,4 +138,12 @@ export async function loadConsumer(transportId: string, producerId: string, rtpC
 export async function resumeConsumer(consumerId: string): Promise<void> {
     const consumer = consumers.get(consumerId);
     if (consumer) await consumer.resume();
+}
+
+export async function closeProducer(producerId: string): Promise<void> {
+    const producer = producers.get(producerId);
+    if (producer) {
+        producer.close();
+        producers.delete(producerId);
+    }
 }
