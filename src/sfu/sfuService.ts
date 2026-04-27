@@ -15,7 +15,56 @@ export const transportToRouter = new Map<string, types.Router>();
 // Mapping to aggregate producers per room
 export const roomProducers = new Map<string, types.Producer[]>();
 
+/**
+ * Resolves the public IP of the server so Mediasoup can announce it
+ * inside ICE candidates. Without the correct public IP, remote peers
+ * cannot reach the SFU and no audio/video is forwarded.
+ *
+ * Priority:
+ *  1. ANNOUNCED_IP env var (if manually set in Render dashboard)
+ *  2. Auto-fetched from api.ipify.org (works on Render free tier)
+ *  3. Fallback to 127.0.0.1 (local dev)
+ */
+async function resolvePublicIp(): Promise<string> {
+    // Priority 1: explicit override
+    if (process.env.ANNOUNCED_IP) {
+        console.log(`[SFU] Using ANNOUNCED_IP from env: ${process.env.ANNOUNCED_IP}`);
+        return process.env.ANNOUNCED_IP;
+    }
+
+    // Priority 2: auto-detect via public API (works on Render free tier)
+    const apis = [
+        "https://api.ipify.org?format=json",
+        "https://api4.my-ip.io/v2/ip.json",
+    ];
+    for (const url of apis) {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 3000);
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeout);
+            const json = await res.json() as any;
+            const ip: string = json.ip || json.ipAddress || "";
+            if (ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+                console.log(`[SFU] Auto-detected public IP: ${ip} (from ${url})`);
+                process.env.ANNOUNCED_IP = ip; // Cache it
+                return ip;
+            }
+        } catch {
+            // Try next API
+        }
+    }
+
+    // Priority 3: local dev fallback
+    console.warn("[SFU] Could not resolve public IP — falling back to 127.0.0.1 (OK for local dev only)");
+    return "127.0.0.1";
+}
+
 export async function startMediasoup(): Promise<void> {
+    // Resolve and cache the public IP BEFORE creating any transports
+    // so sfuConfig picks it up via process.env.ANNOUNCED_IP
+    await resolvePublicIp();
+
     worker = await mediasoup.createWorker({
         logLevel: sfuConfig.worker.logLevel as types.WorkerLogLevel,
         logTags: sfuConfig.worker.logTags,

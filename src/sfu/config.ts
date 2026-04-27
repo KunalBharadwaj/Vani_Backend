@@ -1,21 +1,14 @@
 import type { types } from "mediasoup";
 
-// The announced IP/hostname is what mediasoup advertises inside ICE candidates.
-// In production (Render), set the ANNOUNCED_IP environment variable to your server's
-// public IP. If not set, falls back to 127.0.0.1 for local development.
-const announcedIp = process.env.ANNOUNCED_IP || "127.0.0.1";
-
-// Mediasoup configurations
+// Static parts of the mediasoup config
 export const sfuConfig = {
     worker: {
         logLevel: "warn",
         logTags: ["info", "ice", "dtls", "rtp", "srtp", "rtcp"] as any[],
-        // Port range for RTC connections
         rtcMinPort: 10000,
         rtcMaxPort: 10100,
     },
     router: {
-        // Defines the video/audio capabilities of the router (room)
         mediaCodecs: [
             {
                 kind: "audio",
@@ -27,9 +20,7 @@ export const sfuConfig = {
                 kind: "video",
                 mimeType: "video/VP8",
                 clockRate: 90000,
-                parameters: {
-                    "x-google-start-bitrate": 1000,
-                },
+                parameters: { "x-google-start-bitrate": 1000 },
             },
             {
                 kind: "video",
@@ -44,20 +35,17 @@ export const sfuConfig = {
         ] as unknown as types.RtpCodecCapability[],
     },
     webRtcTransport: {
-        // Both UDP and TCP listen infos are required.
-        // Render and many cloud providers block UDP — TCP is the reliable fallback.
-        listenInfos: [
-            {
-                protocol: "udp",
-                ip: "0.0.0.0",
-                announcedAddress: announcedIp,
-            },
-            {
-                protocol: "tcp",
-                ip: "0.0.0.0",
-                announcedAddress: announcedIp,
-            },
-        ] as types.TransportListenInfo[],
+        // listenInfos is a GETTER so it reads ANNOUNCED_IP at call-time,
+        // not at module-load time. This guarantees the auto-detected IP
+        // (set by resolvePublicIp() in sfuService.ts before any transport
+        // is created) is always used correctly.
+        get listenInfos(): types.TransportListenInfo[] {
+            const ip = process.env.ANNOUNCED_IP || "127.0.0.1";
+            return [
+                { protocol: "udp", ip: "0.0.0.0", announcedAddress: ip },
+                { protocol: "tcp", ip: "0.0.0.0", announcedAddress: ip },
+            ] as types.TransportListenInfo[];
+        },
         initialAvailableOutgoingBitrate: 1000000,
         minimumAvailableOutgoingBitrate: 600000,
         maxSctpMessageSize: 262144,
