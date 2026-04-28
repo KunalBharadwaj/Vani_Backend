@@ -334,10 +334,20 @@ wss.on("connection", (ws) => {
     });
 });
 
-// Start mediasoup then HTTP server
-startMediasoup().then(() => {
-    const port = process.env.PORT || 3001;
-    server.listen(port, () => {
-        console.log(`Realtime Server running on port ${port} with Mediasoup WebRTC enabled!`);
-    });
+// Railway (and most cloud platforms) require the HTTP server to bind immediately.
+// We start the HTTP server FIRST on 0.0.0.0 so Railway's router can reach it,
+// then start Mediasoup in parallel. Audio/video will gracefully degrade if mediasoup
+// fails, but the rest of the app (Yjs collab, auth, PDF) will always be available.
+const port = process.env.PORT || 3001;
+server.listen(Number(port), "0.0.0.0", () => {
+    console.log(`HTTP Server bound on 0.0.0.0:${port}`);
 });
+
+startMediasoup()
+    .then(() => {
+        console.log(`Realtime Server running on port ${port} with Mediasoup WebRTC enabled!`);
+    })
+    .catch((err) => {
+        console.error("Mediasoup failed to start — audio/video features disabled:", err);
+        // Do NOT exit. The rest of the app (Yjs, auth, PDF) still works.
+    });

@@ -53,9 +53,9 @@ export function handleGoogleCallback(req: Request, res: Response) {
             if (parsed.redirectTo) redirectPath = parsed.redirectTo;
             if (parsed.nonce) nonce = parsed.nonce;
             if (!redirectPath.startsWith('/')) redirectPath = '/' + redirectPath;
-        } catch(e) {}
+        } catch (e) { }
     }
-    
+
     // Redirect client back to the frontend, passing token and nonce
     const sep = redirectPath.includes('?') ? '&' : '?';
     res.redirect(`${FRONTEND_URL}${redirectPath}${sep}token=${token}&nonce=${nonce}`);
