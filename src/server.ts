@@ -5,20 +5,10 @@ import cookieParser from "cookie-parser";
 import passport from "passport";
 import jwt from "jsonwebtoken";
 import "dotenv/config";
-import { WebSocketServer, WebSocket } from "ws";
-import { joinRoom, broadcast, broadcastBinary, assignOwner, rooms } from "./rooms/roomManager.js";
+import { WebSocketServer } from "ws";
+import { joinRoom, broadcast, broadcastBinary, assignOwner } from "./rooms/roomManager.js";
 import { getYDoc } from "./yjs/yjsServer.js";
-import {
-    startMediasoup,
-    getOrCreateRouter,
-    createWebRtcTransport,
-    connectTransport,
-    loadProducer,
-    loadConsumer,
-    resumeConsumer,
-    roomProducers,
-    closeProducer
-} from "./sfu/sfuService.js";
+import { generateRtcToken } from "./agora/tokenService.js";
 import { handleGoogleCallback, JWT_SECRET } from "./auth/oauth.js";
 import { logSession, getUserSessions } from "./db/mongo.js";
 import * as Y from "yjs";
@@ -91,6 +81,24 @@ app.get("/api/sessions", authenticateToken, async (req, res) => {
         const sessions = await getUserSessions(user.id);
         res.json(sessions);
     } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Agora RTC token endpoint.
+// The frontend calls this before joining a channel to get a short-lived token.
+// channel = roomId, uid = user's app string ID (server converts to uint32).
+app.get("/api/agora/token", authenticateToken, (req, res) => {
+    try {
+        const channel = req.query.channel as string;
+        const userId = (req as any).user?.id as string;
+        if (!channel || !userId) {
+            return res.status(400).json({ error: "channel and authenticated user required" });
+        }
+        const { token, uid } = generateRtcToken(channel, userId);
+        res.json({ token, uid, appId: process.env.AGORA_APP_ID || "" });
+    } catch (e: any) {
+        console.error("Agora token error:", e.message);
         res.status(500).json({ error: e.message });
     }
 });
@@ -193,137 +201,37 @@ wss.on("connection", (ws) => {
             }
 
             if (data.type === "message" && currentRoom) {
-                // Chat or general messaging broadcast
+                // Chat or general messaging — forward to all others in room
                 broadcast(currentRoom, data.payload, ws);
             }
 
-            if (data.type.startsWith("webrtc:") && currentRoom) {
-                // SFU Signaling placeholder (mediasoup events will route here)
-                console.log("SFU WebRTC Signal Received:", data.type);
-
-                try {
-                    switch (data.type) {
-                        case "webrtc:getRouterRtpCapabilities":
-                            const router = await getOrCreateRouter(currentRoom);
-                            ws.send(JSON.stringify({
-                                type: "webrtc:routerRtpCapabilities",
-                                rtpCapabilities: router.rtpCapabilities
-                            }));
-                            break;
-
-                        case "webrtc:createTransport":
-                            const transport = await createWebRtcTransport(currentRoom);
-                            ws.send(JSON.stringify({
-                                type: "webrtc:transportCreated",
-                                id: transport.id,
-                                iceParameters: transport.iceParameters,
-                                iceCandidates: transport.iceCandidates,
-                                dtlsParameters: transport.dtlsParameters
-                            }));
-                            break;
-
-                        case "webrtc:connectTransport":
-                            await connectTransport(data.transportId, data.dtlsParameters);
-                            ws.send(JSON.stringify({ type: "webrtc:transportConnected" }));
-                            break;
-
-                        case "webrtc:produce":
-                            // @ts-ignore
-                            const producer = await loadProducer(currentRoom, data.transportId, data.kind, data.rtpParameters, ws.user?.id || "unknown");
-                            ws.send(JSON.stringify({ type: "webrtc:produced", id: producer.id }));
-                            // Notify others in room
-                            // @ts-ignore
-                            broadcast(currentRoom, {
-                                type: "webrtc:newProducer",
-                                producerId: producer.id,
-                                kind: data.kind,
-                                // @ts-ignore
-                                callerId: ws.user?.id || null,
-                                // @ts-ignore
-                                callerName: ws.user?.name || "Someone"
-                            }, ws);
-                            break;
-
-                        case "webrtc:getProducers":
-                            const existingProducers = roomProducers.get(currentRoom) || [];
-                            const producersInfo = existingProducers
-                                .filter(p => !p.closed)
-                                .map(p => ({ id: p.id, kind: p.kind, userId: p.appData?.userId }));
-                            ws.send(JSON.stringify({
-                                type: "webrtc:activeProducers",
-                                producers: producersInfo
-                            }));
-                            break;
-
-                        case "webrtc:consume":
-                            const consumer = await loadConsumer(data.transportId, data.producerId, data.rtpCapabilities);
-                            if (consumer) {
-                                ws.send(JSON.stringify({
-                                    type: "webrtc:consumed",
-                                    id: consumer.id,
-                                    producerId: data.producerId,
-                                    kind: consumer.kind,
-                                    rtpParameters: consumer.rtpParameters
-                                }));
-                            }
-                            break;
-
-                        case "webrtc:resumeConsumer":
-                            await resumeConsumer(data.consumerId);
-                            ws.send(JSON.stringify({ type: "webrtc:consumerResumed" }));
-                            break;
-
-                        case "webrtc:closeProducer":
-                            await closeProducer(data.producerId);
-                            break;
-
-                        case "webrtc:requestCall": {
-                            const room = rooms.get(currentRoom);
-                            if (!room || !data.targetUserId) break;
-                            const targetClient = Array.from(room.clients.keys()).find((client: any) => {
-                                const targetUser = room.clients.get(client);
-                                return targetUser?.id === data.targetUserId;
-                            });
-                            if (targetClient && targetClient.readyState === WebSocket.OPEN) {
-                                // @ts-ignore
-                                const senderUser = ws.user || {};
-                                targetClient.send(JSON.stringify({
-                                    type: "webrtc:incomingCallRequest",
-                                    callerId: senderUser.id || null,
-                                    callerName: senderUser.name || "Someone",
-                                    wantsAudio: !!data.wantsAudio,
-                                    wantsVideo: !!data.wantsVideo
-                                }));
-                            }
-                            break;
-                        }
-
-                        case "webrtc:callAccepted":
-                        case "webrtc:callDeclined": {
-                            const room = rooms.get(currentRoom);
-                            if (!room || !data.targetUserId) break;
-                            const targetClient = Array.from(room.clients.keys()).find((client: any) => {
-                                const targetUser = room.clients.get(client);
-                                return targetUser?.id === data.targetUserId;
-                            });
-                            if (targetClient && targetClient.readyState === WebSocket.OPEN) {
-                                // @ts-ignore
-                                const senderUser = ws.user || {};
-                                targetClient.send(JSON.stringify({
-                                    type: data.type,
-                                    senderId: senderUser.id || null,
-                                    senderName: senderUser.name || "Someone",
-                                    acceptedAudio: !!data.acceptedAudio,
-                                    acceptedVideo: !!data.acceptedVideo
-                                }));
-                            }
-                            break;
-                        }
-                    }
-                } catch (e) {
-                    console.error(`SFU error handling ${data.type}:`, e);
-                }
+            // webrtc:requestCall / callAccepted / callDeclined
+            // These are lightweight UI signals ("ring" notifications).
+            // Agora handles the actual media — we only forward the call invitation.
+            if (data.type === "webrtc:requestCall" && currentRoom) {
+                broadcast(currentRoom, {
+                    type: "webrtc:incomingCallRequest",
+                    // @ts-ignore
+                    callerId: ws.user?.id || null,
+                    // @ts-ignore
+                    callerName: ws.user?.name || "Someone",
+                    wantsAudio: !!data.wantsAudio,
+                    wantsVideo: !!data.wantsVideo,
+                }, ws);
             }
+
+            if ((data.type === "webrtc:callAccepted" || data.type === "webrtc:callDeclined") && currentRoom) {
+                broadcast(currentRoom, {
+                    type: data.type,
+                    // @ts-ignore
+                    senderId: ws.user?.id || null,
+                    // @ts-ignore
+                    senderName: ws.user?.name || "Someone",
+                    acceptedAudio: !!data.acceptedAudio,
+                    acceptedVideo: !!data.acceptedVideo,
+                }, ws);
+            }
+
         } catch (err) {
             console.error("Failed to parse message", err);
         }
@@ -334,20 +242,9 @@ wss.on("connection", (ws) => {
     });
 });
 
-// Railway (and most cloud platforms) require the HTTP server to bind immediately.
-// We start the HTTP server FIRST on 0.0.0.0 so Railway's router can reach it,
-// then start Mediasoup in parallel. Audio/video will gracefully degrade if mediasoup
-// fails, but the rest of the app (Yjs collab, auth, PDF) will always be available.
+// Bind the HTTP server immediately so Railway/Render's health checks pass
+// regardless of any async initialisation.
 const port = process.env.PORT || 3001;
 server.listen(Number(port), "0.0.0.0", () => {
-    console.log(`HTTP Server bound on 0.0.0.0:${port}`);
+    console.log(`Server running on port ${port}`);
 });
-
-startMediasoup()
-    .then(() => {
-        console.log(`Realtime Server running on port ${port} with Mediasoup WebRTC enabled!`);
-    })
-    .catch((err) => {
-        console.error("Mediasoup failed to start — audio/video features disabled:", err);
-        // Do NOT exit. The rest of the app (Yjs, auth, PDF) still works.
-    });
