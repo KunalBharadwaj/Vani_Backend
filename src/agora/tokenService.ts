@@ -1,4 +1,5 @@
-import { RtcTokenBuilder, RtcRole } from "agora-token";
+import pkg from "agora-token";
+const { RtcTokenBuilder, RtcRole } = pkg;
 
 const APP_ID = process.env.AGORA_APP_ID || "";
 const APP_CERT = process.env.AGORA_APP_CERT || "";
