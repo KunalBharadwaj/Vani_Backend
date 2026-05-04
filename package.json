@@ -15,6 +15,7 @@
   "type": "module",
   "dependencies": {
     "@google/genai": "^1.51.0",
+    "@img/sharp-linux-x64": "0.34.5",
     "@types/cookie-parser": "^1.4.10",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
