@@ -13,6 +13,9 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "dependencies": {
     "@google/genai": "^1.51.0",
     "@types/cookie-parser": "^1.4.10",
@@ -20,6 +23,7 @@
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/level": "^6.0.3",
+    "@types/multer": "^2.1.0",
     "@types/node": "^25.5.0",
     "@types/passport": "^1.0.17",
     "@types/passport-google-oauth20": "^2.0.17",
@@ -46,9 +50,6 @@
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.30"
-  },
-  "devDependencies": {
-    "@types/multer": "^2.1.0"
   },
   "optionalDependencies": {
     "@img/sharp-linux-x64": "0.34.5"
