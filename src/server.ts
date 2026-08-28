@@ -10,6 +10,7 @@ import { joinRoom, broadcast, broadcastBinary, assignOwner } from "./rooms/roomM
 import { getYDoc } from "./yjs/yjsServer.js";
 import { generateRtcToken } from "./agora/tokenService.js";
 import { handleGoogleCallback, JWT_SECRET } from "./auth/oauth.js";
+import { authenticateToken } from "./auth/middleware.js";
 import { logSession, getUserSessions } from "./db/mongo.js";
 import * as Y from "yjs";
 import aiRoutes from "./routes/ai.js";
@@ -69,19 +70,6 @@ app.get("/api/auth/me", (req, res) => {
     });
 });
 
-
-// Auth Middleware for API routes.
-// Declared as a function (hoisted) so it can be referenced by route mounts
-// that appear earlier in this file, e.g. app.use("/api/ai", authenticateToken, ...).
-function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
-    const token = req.headers.authorization?.split(" ")[1] || req.cookies?.auth_token;
-    if (!token) return res.status(401).json({ error: "Unauthorized" });
-    jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-        if (err) return res.status(403).json({ error: "Forbidden" });
-        (req as any).user = user;
-        next();
-    });
-}
 
 app.post("/api/sessions", authenticateToken, async (req, res) => {
     try {
