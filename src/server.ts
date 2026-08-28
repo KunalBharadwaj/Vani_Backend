@@ -143,7 +143,6 @@ wss.on("connection", (ws) => {
                                 return;
                             }
                             isAuthed = true;
-                            // @ts-ignore
                             ws.user = decoded;
                             console.log(`User ${decoded?.name || 'Unknown'} connected via explicit auth.`);
                             ws.send(JSON.stringify({ type: "auth_success" }));
@@ -182,7 +181,6 @@ wss.on("connection", (ws) => {
             if (data.type === "join") {
                 currentRoom = data.roomId;
                 if (currentRoom) {
-                    // @ts-ignore
                     joinRoom(currentRoom, ws, ws.user);
                     const doc = await getYDoc(currentRoom); // Initialize doc instance from persistence
 
@@ -207,8 +205,7 @@ wss.on("connection", (ws) => {
                 }));
             }
 
-            if (data.type === "assign_owner" && currentRoom) {
-                // @ts-ignore
+            if (data.type === "assign_owner" && currentRoom && ws.user) {
                 assignOwner(currentRoom, ws.user.id, data.targetUserId);
             }
 
@@ -223,9 +220,7 @@ wss.on("connection", (ws) => {
             if (data.type === "webrtc:requestCall" && currentRoom) {
                 broadcast(currentRoom, {
                     type: "webrtc:incomingCallRequest",
-                    // @ts-ignore
                     callerId: ws.user?.id || null,
-                    // @ts-ignore
                     callerName: ws.user?.name || "Someone",
                     wantsAudio: !!data.wantsAudio,
                     wantsVideo: !!data.wantsVideo,
@@ -235,9 +230,7 @@ wss.on("connection", (ws) => {
             if ((data.type === "webrtc:callAccepted" || data.type === "webrtc:callDeclined") && currentRoom) {
                 broadcast(currentRoom, {
                     type: data.type,
-                    // @ts-ignore
                     senderId: ws.user?.id || null,
-                    // @ts-ignore
                     senderName: ws.user?.name || "Someone",
                     acceptedAudio: !!data.acceptedAudio,
                     acceptedVideo: !!data.acceptedVideo,

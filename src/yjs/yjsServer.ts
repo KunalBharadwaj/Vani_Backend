@@ -1,5 +1,4 @@
 import * as Y from "yjs";
-// @ts-ignore
 import { LeveldbPersistence } from "y-leveldb";
 import path from "path";
 import fs from "fs";
