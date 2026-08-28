@@ -127,7 +127,7 @@ router.post("/chat", async (req, res) => {
                     content: text,
                 }
             ],
-            model: "llama-3.3-70b-versatile",
+            model: "openai/gpt-oss-20b",
         });
 
         let llmResponse = chatCompletion.choices[0]?.message?.content || "";
@@ -147,11 +147,11 @@ router.post("/chat", async (req, res) => {
             
             const hotelCompletion = await groq.chat.completions.create({
                 messages: [{ role: "user", content: hotelQuery }],
-                model: "llama-3.3-70b-versatile",
+                model: "openai/gpt-oss-20b",
             });
-            
+
             const hotelData = hotelCompletion.choices[0]?.message?.content || "";
-            const hotelMatches = [...hotelData.matchAll(/\\[HOTEL: (.*?) \\| price: (.*?) \\| rating: (.*?)\\]/g)];
+            const hotelMatches = [...hotelData.matchAll(/\[HOTEL: (.*?) \| price: (.*?) \| rating: (.*?)\]/g)];
             
             hotelMatches.forEach(match => {
                 hotels.push({

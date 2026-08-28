@@ -131,6 +131,10 @@ wss.on("connection", (ws) => {
                     if (data.type === "auth" && data.token) {
                         jwt.verify(data.token, JWT_SECRET, (err: any, decoded: any) => {
                             if (err) {
+                                // 4001 = token present but invalid/expired. The client
+                                // must NOT reconnect with the same token — it should
+                                // clear it and send the user back to login.
+                                console.warn(`[WS] Auth rejected (${err.name}: ${err.message}). Closing 4001.`);
                                 ws.close(4001, "Unauthorized");
                                 return;
                             }
@@ -241,8 +245,10 @@ wss.on("connection", (ws) => {
         }
     });
 
-    ws.on("close", () => {
-        console.log("Client disconnected");
+    ws.on("close", (code, reason) => {
+        const who = (ws as any).user?.name || (isAuthed ? "Unknown" : "unauthenticated client");
+        const why = reason?.toString() || "no reason";
+        console.log(`Client disconnected (${who}) — code ${code}: ${why}`);
     });
 });
 
