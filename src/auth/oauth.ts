@@ -36,11 +36,16 @@ export function handleGoogleCallback(req: Request, res: Response) {
         { expiresIn: "7d" }
     );
 
-    // Set HTTP-only cookie for standard API requests 
+    // Set HTTP-only cookie for standard API requests.
+    // Cross-site prod (Vercel → Render) needs sameSite "none" + secure;
+    // local dev is same-site over http, so use "lax" (a "none" cookie without
+    // secure is rejected by browsers, which would silently break dev login).
+    const isProd = process.env.NODE_ENV === "production";
     res.cookie("auth_token", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: "none"
+        secure: isProd,
+        sameSite: isProd ? "none" : "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7d, matches the JWT expiry
     });
 
     // Check for CSRF nonce and redirectPath
@@ -56,7 +61,10 @@ export function handleGoogleCallback(req: Request, res: Response) {
         } catch (e) { }
     }
 
-    // Redirect client back to the frontend, passing token and nonce
+    // #3: Do NOT put the JWT in the URL — it leaks into browser history,
+    // server access logs, and Referer headers. Only the CSRF nonce is passed
+    // back; the frontend reads the token from the httpOnly cookie via
+    // GET /api/auth/me.
     const sep = redirectPath.includes('?') ? '&' : '?';
-    res.redirect(`${FRONTEND_URL}${redirectPath}${sep}token=${token}&nonce=${nonce}`);
+    res.redirect(`${FRONTEND_URL}${redirectPath}${sep}nonce=${nonce}`);
 }

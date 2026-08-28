@@ -14,6 +14,19 @@ import { logSession, getUserSessions } from "./db/mongo.js";
 import * as Y from "yjs";
 import aiRoutes from "./routes/ai.js";
 
+// #4: Fail fast in production if critical secrets are missing, rather than
+// silently falling back to insecure defaults (a default JWT_SECRET would make
+// tokens forgeable; mock OAuth creds would break login). Dev keeps its
+// convenient fallbacks.
+if (process.env.NODE_ENV === "production") {
+    const missing = ["JWT_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]
+        .filter((k) => !process.env[k]);
+    if (missing.length) {
+        console.error(`[FATAL] Missing required environment variables in production: ${missing.join(", ")}`);
+        process.exit(1);
+    }
+}
+
 const app = express();
 app.set("trust proxy", 1); // Trust first proxy (Render) to set secure cookies properly
 const server = http.createServer(app);
