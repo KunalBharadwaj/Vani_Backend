@@ -4,6 +4,7 @@ import multer from "multer";
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
 import { parseReminder, parseHotels } from "../ai/parsers.js";
+import { chatRequestSchema } from "../validation/schemas.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -83,8 +84,11 @@ router.post("/chat", async (req, res) => {
             groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
         }
         
-        const { text, currentTime: clientTime } = req.body;
-        if (!text) return res.status(400).json({ error: "No text provided" });
+        const parsed = chatRequestSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: "Invalid request", details: parsed.error.issues });
+        }
+        const { text, currentTime: clientTime } = parsed.data;
 
         const lowerText = text.toLowerCase();
 

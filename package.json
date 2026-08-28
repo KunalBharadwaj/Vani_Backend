@@ -51,7 +51,8 @@
     "y-leveldb": "^0.2.0",
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.0.0",
-    "yjs": "^13.6.30"
+    "yjs": "^13.6.30",
+    "zod": "^4.5.1"
   },
   "optionalDependencies": {
     "@img/sharp-linux-x64": "0.34.5"

@@ -11,6 +11,7 @@ import { getYDoc } from "./yjs/yjsServer.js";
 import { generateRtcToken } from "./agora/tokenService.js";
 import { handleGoogleCallback, JWT_SECRET } from "./auth/oauth.js";
 import { authenticateToken } from "./auth/middleware.js";
+import { wsClientMessageSchema } from "./validation/schemas.js";
 import { logSession, getUserSessions } from "./db/mongo.js";
 import * as Y from "yjs";
 import aiRoutes from "./routes/ai.js";
@@ -177,6 +178,13 @@ wss.on("connection", (ws) => {
 
         try {
             const data = JSON.parse(message.toString());
+
+            // Reject malformed/unknown control messages before dispatching.
+            const validation = wsClientMessageSchema.safeParse(data);
+            if (!validation.success) {
+                console.warn(`[WS] Ignoring invalid message (type=${data?.type ?? "?"})`);
+                return;
+            }
 
             if (data.type === "join") {
                 currentRoom = data.roomId;
