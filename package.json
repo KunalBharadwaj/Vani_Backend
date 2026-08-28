@@ -12,7 +12,7 @@
     "dev": "npx tsx watch src/server.ts"
   },
   "keywords": [],
-  "author": "",
+  "author": "Kunal Bharadwaj & Aman Raghuwanshi",
   "license": "ISC",
   "type": "module",
   "engines": {
