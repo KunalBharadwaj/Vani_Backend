@@ -3,6 +3,7 @@ import multer from "multer";
 // Removed sharp dependency since cropping happens on frontend
 import { GoogleGenAI } from "@google/genai";
 import Groq from "groq-sdk";
+import { parseReminder, parseHotels } from "../ai/parsers.js";
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -130,36 +131,23 @@ router.post("/chat", async (req, res) => {
             model: "openai/gpt-oss-20b",
         });
 
-        let llmResponse = chatCompletion.choices[0]?.message?.content || "";
-        const alarms: any[] = [];
-        const hotels: any[] = [];
+        const rawResponse = chatCompletion.choices[0]?.message?.content || "";
 
-        // Check for alarms
-        const alarmMatch = llmResponse.match(/\[COMMAND: REMINDER \| message: (.*?) \| seconds: (\d+)\]/);
-        if (alarmMatch) {
-            alarms.push({ message: alarmMatch[1], seconds: parseInt(alarmMatch[2] as string) });
-            llmResponse = llmResponse.replace(/\[COMMAND: REMINDER .*?\]/g, "").trim();
-        }
+        // Extract any reminder command and strip it from the user-facing text.
+        const { response: llmResponse, reminder } = parseReminder(rawResponse);
+        const alarms = reminder ? [reminder] : [];
+        let hotels: ReturnType<typeof parseHotels> = [];
 
-        // Check for hotels if asked
+        // Fetch + parse hotels only when the user asked about them.
         if (lowerText.includes("hotel") || lowerText.includes("stay")) {
             const hotelQuery = `Provide a list of 3 real hotels in '${text}' sorted by price (lowest to highest) with name, price per night, and star rating. Format: [HOTEL: name | price: <price> | rating: <stars>]`;
-            
+
             const hotelCompletion = await groq.chat.completions.create({
                 messages: [{ role: "user", content: hotelQuery }],
                 model: "openai/gpt-oss-20b",
             });
 
-            const hotelData = hotelCompletion.choices[0]?.message?.content || "";
-            const hotelMatches = [...hotelData.matchAll(/\[HOTEL: (.*?) \| price: (.*?) \| rating: (.*?)\]/g)];
-            
-            hotelMatches.forEach(match => {
-                hotels.push({
-                    name: match[1],
-                    price: match[2],
-                    rating: parseFloat(match[3]?.replace(/[^0-9.]/g, '') || '') || 5.0
-                });
-            });
+            hotels = parseHotels(hotelCompletion.choices[0]?.message?.content || "");
         }
 
         res.json({

@@ -37,5 +37,9 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true
-  }
+  },
+  // Production build compiles only application source; test files and the
+  // Vitest config are excluded (they live outside rootDir and use vitest globals).
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "test", "vitest.config.ts"]
 }
