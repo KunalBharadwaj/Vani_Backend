@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "npx tsx watch src/server.ts"
@@ -53,5 +55,9 @@
   },
   "optionalDependencies": {
     "@img/sharp-linux-x64": "0.34.5"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.1.11",
+    "vitest": "^4.1.11"
   }
 }
