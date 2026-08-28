@@ -24,8 +24,9 @@ app.use(cookieParser());
 app.use(express.json());
 app.use(passport.initialize());
 
-// AI Routes
-app.use("/api/ai", aiRoutes);
+// AI Routes — gated behind auth so the paid Groq/Gemini endpoints
+// can't be hit anonymously (cost/abuse protection).
+app.use("/api/ai", authenticateToken, aiRoutes);
 
 // OAuth 2.0 Routes
 app.get("/auth/google", (req, res, next) => {
@@ -56,8 +57,10 @@ app.get("/api/auth/me", (req, res) => {
 });
 
 
-// Auth Middleware for API routes
-const authenticateToken = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+// Auth Middleware for API routes.
+// Declared as a function (hoisted) so it can be referenced by route mounts
+// that appear earlier in this file, e.g. app.use("/api/ai", authenticateToken, ...).
+function authenticateToken(req: express.Request, res: express.Response, next: express.NextFunction) {
     const token = req.headers.authorization?.split(" ")[1] || req.cookies?.auth_token;
     if (!token) return res.status(401).json({ error: "Unauthorized" });
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
@@ -65,7 +68,7 @@ const authenticateToken = (req: express.Request, res: express.Response, next: ex
         (req as any).user = user;
         next();
     });
-};
+}
 
 app.post("/api/sessions", authenticateToken, async (req, res) => {
     try {
