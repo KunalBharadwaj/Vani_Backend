@@ -61,10 +61,19 @@ export function handleGoogleCallback(req: Request, res: Response) {
         } catch (e) { }
     }
 
-    // #3: Do NOT put the JWT in the URL — it leaks into browser history,
-    // server access logs, and Referer headers. Only the CSRF nonce is passed
-    // back; the frontend reads the token from the httpOnly cookie via
-    // GET /api/auth/me.
+    // Return the JWT to the frontend in the URL *fragment* (#token=...), not the
+    // query string. Fragments are never sent to the server, so — unlike the old
+    // ?token= approach (#3) — the JWT can't leak into access logs or the Referer
+    // header, and the frontend strips it from the URL the moment it reads it.
+    //
+    // This is required because the auth cookie set above is cross-site (Vercel
+    // frontend → Render backend). Browsers that block/partition third-party
+    // cookies (Firefox Total Cookie Protection, Safari ITP, and Chrome's
+    // phase-out) will NOT send that cookie on the GET /api/auth/me fetch from the
+    // frontend origin, so the cookie alone cannot deliver the token there. The
+    // cookie is still set for same-site/custom-domain setups where it works; the
+    // fragment is the reliable cross-browser path. The CSRF nonce stays in the
+    // query so the frontend can verify it before trusting the token.
     const sep = redirectPath.includes('?') ? '&' : '?';
-    res.redirect(`${FRONTEND_URL}${redirectPath}${sep}nonce=${nonce}`);
+    res.redirect(`${FRONTEND_URL}${redirectPath}${sep}nonce=${nonce}#token=${token}`);
 }
